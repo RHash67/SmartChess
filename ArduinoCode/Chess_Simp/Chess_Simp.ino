@@ -508,11 +508,15 @@ void setUpGame(){
 }
 
 void hint(){
- static unsigned long last_interrupt_time = 0;
- unsigned long interrupt_time = millis();
- // If interrupts come faster than 200ms, assume it's a bounce and ignore
- if (interrupt_time - last_interrupt_time > 200) 
- {
+ // static unsigned long last_interrupt_time = 0;
+ // unsigned long interrupt_time = millis();  [can't use millis() since function call doesn't reset it]
+ // Use Counter delay instead to ride through switch debounces
+ for (int i = 0; i <= 10000; i++) {
+  for (int j = 0; j <= 20; j++) {
+    int x = 0;
+  }
+ }
+ // if (interrupt_time - last_interrupt_time > 200) 
   if (digitalRead(A1) == LOW){
     Serial.println("Starting a new game....");
     sendToPi("","n");
@@ -544,8 +548,7 @@ void hint(){
   } else {
     Serial.println("No hint provided by pi yet.");
   }
- }
- last_interrupt_time = interrupt_time;
+ // last_interrupt_time = interrupt_time;
 }
 
 
