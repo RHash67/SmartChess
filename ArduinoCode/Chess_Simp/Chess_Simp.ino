@@ -1,4 +1,5 @@
 //v27 adding ability to start a new game
+//Jan 2024 - modified hint interrupt call to change a hintValue variable instead of doing processing within the interrupt call
 #include <Adafruit_GFX.h>
 #include <Adafruit_NeoMatrix.h>
 #include <Adafruit_NeoPixel.h>
@@ -31,6 +32,7 @@ String pisSuggestedBestMove;
 String gameMode = "0";  // can be either 'Stockfish' or 'OnlineHuman' once set
 String colourChoice; // can be either 'black' or 'white'
 bool legalOrNot;
+int hintValue = 0;  // 0 = no hint requested, 1 = hint request, 2 = start new game, 3 = shutdown
 
 // Color definitions
 #define BLACK    0x0000
@@ -66,12 +68,12 @@ void setup() {
   //setup for the control panels neopixels
   controlPanelLED.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
   controlPanelLED.show();            // Turn OFF all pixels ASAP
-  controlPanelLED.setBrightness(255); // Set BRIGHTNESS (max = 255)
+  controlPanelLED.setBrightness(150); // Set BRIGHTNESS (max = 255)
 
   //setup for chessboard neopixels
   chessboardLEDS.begin();
   chessboardLEDS.setTextWrap(false);
-  chessboardLEDS.setBrightness(255);
+  chessboardLEDS.setBrightness(120);
   chessboardLEDS.setTextColor(colors[0]);
   chessboardLEDS.show();
   
@@ -82,6 +84,7 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
+  hintValue = 0;  // reset hint value
   humansMove = humansGo();
   sendToPi(humansMove, "M");
   printBoard();
@@ -321,6 +324,40 @@ String getCoordinates(int buttonAlreadyPressed){
   
   while (column == "x"){
     //Serial.println("Waiting for user to input column via button press...");
+
+    if (hintValue == 1) {
+      //Serial.println("Suggested best move= " + pisSuggestedBestMove);
+      controlPanelLED.fill(cpBLACK, 0, 4);
+      controlPanelLED.setPixelColor(5, 0, 0, 255); //light up the hint button on the control panel in blue
+      controlPanelLED.show();
+      lightUpMove(pisSuggestedBestMove,'H');
+      showChessboardMarkings();
+      controlPanelLED.setPixelColor(5, 255, 255, 255); //light up the hint button on the control panelin white again
+      controlPanelLED.fill(cpWHITE, 0, 4);
+      controlPanelLED.show();
+      hintValue = 0;
+    }
+    if (hintValue == 2) {
+      sendToPi("","n");
+      setUpBoard(); //reset all the chess piece positions
+      controlPanelLED.setPixelColor(5, 0, 0, 0); //turn off the hint button on the control panel
+      controlPanelLED.fill(cpWHITE, 0, 5);
+      controlPanelLED.show();
+      controlPanelLED.show();
+      int var1 = 0;
+        while (var1 < 64){
+            var1 = loadingStatus(var1);
+            delay(25);
+          }
+      delay(1000);
+      showChessboardMarkings();
+      hintValue = 0;
+    }
+    if (hintValue == 3) {
+      sendToPi("shutdown", "x");
+      hintValue = 0;
+    }
+
     if (buttonAlreadyPressed != 0){
       temp = buttonAlreadyPressed;
     } else {
@@ -437,6 +474,9 @@ int detectButton(){
       //Serial.println("Button connected to A1 (for 'Yes') detected");
       val = 9;
       break;
+    } else if (hintValue == 1){  // kick out of button detect routine if hint is pressed
+      val = 10;
+      break;
     }
   }
   return val;
@@ -507,49 +547,30 @@ void setUpGame(){
   controlPanelLED.show();
 }
 
+
 void hint(){
- static unsigned long last_interrupt_time = 0;
- unsigned long interrupt_time = millis();
- // If interrupts come faster than 200ms, assume it's a bounce and ignore
- if (interrupt_time - last_interrupt_time > 200) 
- {
-  if (digitalRead(A1) == LOW){
-    Serial.println("Starting a new game....");
-    sendToPi("","n");
-    setUpBoard(); //reset all the chess piece positions
-    controlPanelLED.setPixelColor(5, 0, 0, 0); //turn off the hint button on the control panel
-    controlPanelLED.fill(cpWHITE, 0, 5);
-    controlPanelLED.show();
-    controlPanelLED.show();
-    int var1 = 0;
-    while (var1 < 64){
-            var1 = loadingStatus(var1);
-            delay(25);
-          }
-    delay(1000);
-    showChessboardMarkings();
-    return;
-  } else if (digitalRead(12) == LOW){
-    sendToPi("shutdown", "x");
-  } else if (pisSuggestedBestMove.length() != 1){
-    //Serial.println("Suggested best move= " + pisSuggestedBestMove);
-    controlPanelLED.fill(cpBLACK, 0, 4);
-    controlPanelLED.setPixelColor(5, 0, 0, 255); //light up the hint button on the control panel in blue
-    controlPanelLED.show();
-    lightUpMove(pisSuggestedBestMove,'H');
-    showChessboardMarkings();
-    controlPanelLED.setPixelColor(5, 255, 255, 255); //light up the hint button on the control panelin white again
-    controlPanelLED.fill(cpWHITE, 0, 4);
-    controlPanelLED.show();
-  } else {
-    Serial.println("No hint provided by pi yet.");
-  }
+// Counter delay to ride through switch debounces
+ for (long i = 0; i <= 200000; i++) {
+    int x = 0;
  }
- last_interrupt_time = interrupt_time;
+ hintValue = 1; // set initial value for hint
+ if (pisSuggestedBestMove.length() == 1) {
+  hintValue = 0;
+  return;
+ }
+ while (digitalRead(3) == LOW) {
+  if (digitalRead(A1) == LOW) {  // if "OK" button is pressed while HINT is pressed
+    hintValue = 2; // set value for new game start
+    break;
+  }
+  if (digitalRead(12) == LOW) {  // if "H8" button is pressed while HINT is pressed
+    hintValue = 3; // set value for shutdown
+    break;
+  }
+  hintValue = 1;
+ }
+ return;
 }
-
-
-
 
 
 void checkForComputerCheckMate(String hint, String attacker){
