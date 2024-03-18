@@ -5,6 +5,8 @@
 # It is written in Python 2.7 because chessboard is.
 # It assumes you have got the python libraries chessboard, subprocess and time
 
+# Modified March 2024 - add show board layout functions, improved hint routine, and issues with checkmate and pawn promotion
+
 
 # initiate chessboard
 from ChessBoard import ChessBoard
@@ -28,7 +30,7 @@ def get():
 
     # using the 'isready' command (engine has to answer 'readyok')
     # to indicate current last line of stdout
-    stx=""
+    # stx=""
     engine.stdin.write('isready\n')
     print('\nengine:')
     while True :
@@ -68,18 +70,20 @@ def sget():
 
     # using the 'isready' command (engine has to answer 'readyok')
     # to indicate current last line of stdout
-    stx=""
+    # stx=""
+    mtext=''
     engine.stdin.write('isready\n')
     print('\nengine:')
     while True :
         text = engine.stdout.readline().strip()
-        #if text == 'readyok':
-         #   break
+        # if text == 'readyok':
+            # break
         if text !='':
             print('\t'+text)
         if text[0:8] == 'bestmove':
             mtext=text
-            return mtext
+            break
+    return mtext
 
 def getboard():
     """ gets a text string from the board """
@@ -106,6 +110,17 @@ def sendtoboard(stxt):
     time.sleep(2)
     ser.write(b"heyArduino" + stxt + "\n".encode('ascii'))
 
+def sendtoboardsht(stxt):
+    """ same as sendtoboard except after only 0.5s delay """
+    print("\n Sent to board: heyArduino" + stxt)
+    stxt = bytes(str(stxt).encode('utf8'))
+    time.sleep(0.5)
+    ser.write(b"heyArduino" + stxt + "\n".encode('ascii'))
+
+def sendtoboardnd(stxt):
+    """ same as sendtoboard except no delay """
+    stxt = bytes(str(stxt).encode('utf8'))
+    ser.write(b"heyArduino" + stxt + "\n".encode('ascii'))
 
 def newgame():
     sendToScreen ('NEW','GAME','','30')
@@ -115,7 +130,7 @@ def newgame():
     put('setoption name Skill Level value ' +skill)
     get ()
     put('setoption name Hash value 128')
-    get()
+    get ()
     #put('setoption name Best Book Move value true')
     #get()
     #put('setoption name OwnBook value true')
@@ -125,8 +140,8 @@ def newgame():
     put('ucinewgame')
     maxchess.resetBoard()
     maxchess.setPromotion(maxchess.QUEEN)
-    print("Promotion set to ")
-    print(maxchess.getPromotion())
+    #print("Promotion set to ")
+    #print(maxchess.getPromotion())
     fmove=""
     brdmove=""
     time.sleep(2)
@@ -149,6 +164,9 @@ def bmove(fmove):
     fmove=fmove
     # Get a move from the board
     brdmove = bmessage[1:5].lower()
+    movefrom = brdmove[0:2]
+    torank = int(brdmove[3:4])
+    pieceType = pieceAtPos(movefrom) # check to see if pawn is being moved (for promotion check)
     # now validate move
     # if invalid, get reason & send back to board
       #  maxchess.addTextMove(move)
@@ -166,7 +184,9 @@ def bmove(fmove):
         print ("brdmove")
         print(brdmove)
         sendToScreen (brdmove[0:2] + '->' + brdmove[2:4] ,'','Thinking...','20')
-
+        if ((pieceType == 'P') and (torank == 8)):
+             print("Pawn is being promoted")
+             brdmove = brdmove + "Q"  # Stockfish needs pawn promotion piece value as part of move notation
         fmove =fmove+" " +brdmove
 
         cmove = "position startpos moves"+fmove
@@ -193,22 +213,44 @@ def bmove(fmove):
         print (text)
         smove = text[9:13]
         hint = text[21:25]
-        if maxchess.addTextMove(smove) != True :
+        if text[13:14] != " " :  # if computer pawn is promoted need to include the promotion piece
+             smove = text[9:14]
+             hint = text[22:26]
+        blackWins = 0
+        if hint == "" :
+             time.sleep(2) # computer has checkmated player - need to wait
+             blackWins = 1 
+        if text[9:15] == "(none)":  # computer is checkmated
+             print ("Computer checkmated!")
+             sendToScreen ('WHITE','WINS!','','30')
+             sendtoboard("checkmated" + brdmove)
+             smove = ""
+        if ((maxchess.addTextMove(smove) != True) and (text[9:15] != "(none)")) :
                         stxt = "e"+ str(maxchess.getReason())+smove
                         maxchess.printBoard()
                         sendtoboard(stxt)
 
         else:
-                        temp=fmove
-                        fmove =temp+" " +smove
-                        stx = smove+hint
-                        maxchess.printBoard()
-                        # maxfen = maxchess.getFEN()
-                        print ("computer move: " +smove)
-                        sendToScreen (smove[0:2] + '->' + smove[2:4] ,'','Your go...','20')
-                        smove ="m"+smove
-                        sendtoboard(smove +"-"+ hint)
-                        return fmove
+                        if text[9:15] == "(none)":
+                             fmove = ""
+                             return fmove
+                        else:
+                             temp=fmove
+                             fmove =temp+" " +smove
+                             # stx = smove+hint
+                             maxchess.printBoard()
+                             # maxfen = maxchess.getFEN()
+                             print ("computer move: " +smove)
+                             if blackWins == 1:
+                                  sendToScreen ('BLACK','WINS!','','30')
+                             else:
+                                  if len(smove) > 4:
+                                       sendToScreen (smove[0:2] + '->' + smove[2:4] ,'Promote: ' + smove[4:5],'Your move...','20')
+                                  else:
+                                       sendToScreen (smove[0:2] + '->' + smove[2:4] ,'','Your move...','20')
+                             smove ="m"+smove[0:4]
+                             sendtoboard(smove +"-"+ hint)
+                             return fmove
 
 def bmoveOnline(fmove):
     """ assume we get a command of the form ma1a2 from board"""
@@ -266,7 +308,7 @@ def bmoveOnline(fmove):
                 fmove =temp+" " +smove
                 stx = smove+hint
                 maxchess.printBoard()
-                sendToScreen (smove[0:2] + '->' + smove[2:4] ,'','Your go...','20')
+                sendToScreen (smove[0:2] + '->' + smove[2:4] ,'','Your move...','20')
                 smove ="m"+smove
                 sendtoboard(smove +"-"+ hint)
 
@@ -289,7 +331,142 @@ def sendToScreen(line1,line2,line3,size = '14'):
     screenScriptToRun = ["python3", "/home/pi/SmartChess/RaspberryPiCode/printToOLED.py", '-a '+ line1, '-b '+ line2, '-c '+ line3, '-s '+ size]
     subprocess.Popen(screenScriptToRun)
 
-#Choose a moe of gameplay on the Arduino
+# displays board layout for the user
+def showLayout():
+    bdlayout = maxchess.getBoard()
+    
+    # routine for lighting up occupied spaces
+    for x in range(8):
+         for y in range(8):
+              layoutsymb = bdlayout[x][y]
+              if layoutsymb != '.':
+                     if layoutsymb == 'r':
+                         sqColor = "b"
+                     elif layoutsymb == 'n':
+                         sqColor = "b"
+                     elif layoutsymb == 'b':
+                         sqColor = "b"
+                     elif layoutsymb == 'q':
+                         sqColor = "b"
+                     elif layoutsymb == 'k':
+                         sqColor = "b"
+                     elif layoutsymb == 'p':
+                        sqColor = "b"
+                     elif layoutsymb == 'R':
+                         sqColor = "w"
+                     elif layoutsymb == 'N':
+                         sqColor = "w"
+                     elif layoutsymb == 'B':
+                         sqColor = "w"
+                     elif layoutsymb == 'Q':
+                         sqColor = "w"
+                     elif layoutsymb == 'K':
+                         sqColor = "w"
+                     elif layoutsymb == 'P':
+                         sqColor = "w"
+                     else :
+                         sqColor = ""
+                     sendtoboardnd("b" + str(x) + str(y) + str(sqColor))
+                     while True :
+                         nextPiece = getboard()
+                         if nextPiece == 'bnext':
+                             break
+                         else :
+                             continue
+    sendtoboardsht("bdone")
+    sendToScreen('Identify Pieces?','OK - Continue','1 - Exit','14')
+    showPieces = getboard()
+    bkFlag = False
+    if showPieces == 'bok':
+         # routine for stepping through pieces
+         for x in range(8):
+             for y in range(8):
+                 layoutsymb = bdlayout[x][y]
+                 if layoutsymb != '.':
+                         if layoutsymb == 'r':
+                             pColor = "Black"
+                             pType = "Rook"
+                             sqColor = "b"
+                         elif layoutsymb == 'n':
+                             pColor = "Black"
+                             pType = "Knight"
+                             sqColor = "b"
+                         elif layoutsymb == 'b':
+                             pColor = "Black"
+                             pType = "Bishop"
+                             sqColor = "b"
+                         elif layoutsymb == 'q':
+                             pColor = "Black"
+                             pType = "Queen"
+                             sqColor = "b"
+                         elif layoutsymb == 'k':
+                             pColor = "Black"
+                             pType = "King"
+                             sqColor = "b"
+                         elif layoutsymb == 'p':
+                             pColor = "Black"
+                             pType = "Pawn"
+                             sqColor = "b"
+                         elif layoutsymb == 'R':
+                             pColor = "White"
+                             pType = "Rook"
+                             sqColor = "w"
+                         elif layoutsymb == 'N':
+                             pColor = "White"
+                             pType = "Knight"
+                             sqColor = "w"
+                         elif layoutsymb == 'B':
+                             pColor = "White"
+                             pType = "Bishop"
+                             sqColor = "w"
+                         elif layoutsymb == 'Q':
+                             pColor = "White"
+                             pType = "Queen"
+                             sqColor = "w"
+                         elif layoutsymb == 'K':
+                             pColor = "White"
+                             pType = "King"
+                             sqColor = "w"
+                         elif layoutsymb == 'P':
+                             pColor = "White"
+                             pType = "Pawn"
+                             sqColor = "w"
+                         else :
+                             pColor = ""
+                             pType = ""
+                             sqColor = ""
+                         sendtoboardsht("b" + str(x) + str(y) + str(sqColor))
+                         sendToScreen(pColor, pType, '', '20')
+                         while True :
+                             nextPiece = getboard()
+                             if nextPiece == 'bnext':
+                                 break
+                             elif nextPiece == 'bexit':
+                                 break
+                             else :
+                                 continue
+                 if nextPiece == 'bexit':
+                    bkFlag = True
+                    break
+             if bkFlag:
+                break
+    sendtoboardsht("bdone")
+    sendToScreen('','','Your move...','20')
+
+    # end of routine
+
+def pieceAtPos(space):
+     bdlayout = maxchess.getBoard()
+     filespace = space[0:1]
+     rankspace = space[1:2]
+     ranknum = ord(filespace) - 97  # convert piece file position to integer number
+     filenum = 8 - int(rankspace)
+     return (bdlayout[filenum][ranknum]) # coordinate system is opposite for alg notation vs
+        # board layout
+
+     # end of routine
+
+#Choose a mode of gameplay on the Arduino
 time.sleep(1)
 sendtoboard("ChooseMode")
 print ("Waiting for mode of play to be decided on the Arduino")
@@ -305,14 +482,14 @@ if gameplayMode == 'stockfish':
 
         # get intial settings (such as level)
         print ("Waiting for level command to be received from Arduino")
-        sendToScreen ('Choose computer','difficulty level:','(0 -> 8)')
+        sendToScreen ('Choose computer','difficulty level:','(1 -> 8)')
         skillFromArduino = getboard()[1:3].lower()
         print ("Requested skill level:")
         print(skillFromArduino)
 
         # get intial settings (such as move time)
         print ("Waiting for move time command to be received from Arduino")
-        sendToScreen ('Choose computer','move time:','(0 -> 8)')
+        sendToScreen ('Choose computer','move time:','(1 -> 8)')
         movetimeFromArduino = getboard()[1:].lower()
         print ("Requested time out setting:")
         print(movetimeFromArduino)
@@ -333,17 +510,24 @@ if gameplayMode == 'stockfish':
             bmessage = getboard()
             print ("Move command received from Arduino")
             print(bmessage)
-            # Message options   Move, Newgame, level, style
+            # Message options   Move, Newgame, level, style, board position
             code = bmessage[0]
 
+	        # if code == 'b':
+		        # print ("Sending board position to Arduino")
+		        # sendtoboard("b" + maxchess.getBoard())
 
 
             # decide which function to call based on first letter of txt
             fmove=fmove
             if code == 'm':
-                fmove = bmove(fmove)
+            	fmove = bmove(fmove)
             elif code == 'n':
-                fmove = newgame()
+            	fmove = newgame()
+            elif code == 'b':
+                showLayout()
+            #elif code == 'c':
+            #    showLayout2()
             #elif code == 'l':
             #    level()
             #elif code == 's':
@@ -410,7 +594,7 @@ elif gameplayMode == 'onlinehuman':
                             fmove =temp+" " +smove
                             stx = smove+hint
                             maxchess.printBoard()
-                            sendToScreen (smove[0:2] + '->' + smove[2:4] ,'','Your go...','20')
+                            sendToScreen (smove[0:2] + '->' + smove[2:4] ,'','Your move...','20')
                             smove ="m"+smove
                             sendtoboard(smove +"-"+ hint)
                             skipFirstGo = "NoMore"
