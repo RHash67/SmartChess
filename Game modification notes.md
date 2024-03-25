@@ -7,7 +7,7 @@ I narrowed the main issues to 1) insufficient power supply, 2) insufficient memo
 
 3) Code issues:  Again, this might have had something to do with 2).  Once I had more memory to play with, I could go ahead and resolve some of the issues I saw.  These included hint handling, player pawn promotion, and checkmate detection.  Also, I was able to add a “check board layout” function to allow the player to identify the pieces on the board if something happens to physically disrupt the piece positions.  The code revisions I did were to the StartChessGame.py (for the Raspberry Pi), and Chess_Simp_forM0.ino (for the M0).  I changed the name of the ino file to avoid confusion with the original Nano sketch.
 
-3/24/24 - Upcoming code revisions:  I am working on a couple of code mods to further improve gameplay.  These are:
+3/25/24 - Upcoming code revisions:  I need to work out bugs in my checkmate detection and pawn promotion checks.  Also, I am working on a couple of code mods to further improve gameplay.  These are:
 
 A) Modify the start new game routine to allow the player to select skill level and computer move time, without having to reboot the unit.  The current code new game routine just resets the board, but does not allow the player the chance to adjust level/time.
 
